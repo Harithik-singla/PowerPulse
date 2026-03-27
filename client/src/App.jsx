@@ -7,6 +7,9 @@ import Register from './pages/auth/Register';
 import ProtectedRoute from './components/ProtectedRoute';
 import DashboardLayout from './components/DashboardLayout';
 import CitizenDashboard from './pages/citizen/Dashboard';
+import OperatorDashboard from './pages/operator/OperatorDashboard';
+import { SocketProvider } from './context/SocketContext';
+
 
 const qc = new QueryClient();
 
@@ -25,6 +28,7 @@ export default function App() {
   return (
     <QueryClientProvider client={qc}>
       <AuthProvider>
+        <SocketProvider>
         <BrowserRouter>
           <Routes>
             <Route path="/login"    element={<AuthLayout><Login /></AuthLayout>} />
@@ -35,7 +39,7 @@ export default function App() {
               </ProtectedRoute>} />
             <Route path="/operator" element={
               <ProtectedRoute roles={['operator', 'admin']}>
-                <Placeholder title="Operator dashboard" />
+                <OperatorDashboard />
               </ProtectedRoute>} />
             <Route path="/admin" element={
               <ProtectedRoute roles={['admin']}>
@@ -44,6 +48,7 @@ export default function App() {
             <Route path="*" element={<Navigate to="/login" replace />} />
           </Routes>
         </BrowserRouter>
+        </SocketProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

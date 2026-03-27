@@ -1,11 +1,10 @@
-const Outage = require('../models/Outage');
+const Outage    = require('../models/Outage');
+const { getIO } = require('../config/socket');
 
-// GET /api/outages?lat=&lng=&radius=5000&status=
 exports.getOutages = async (req, res) => {
   try {
     const { lat, lng, radius = 5000, status, pincode } = req.query;
     let query = {};
-
     if (lat && lng) {
       query.location = {
         $near: {
@@ -28,14 +27,9 @@ exports.getOutages = async (req, res) => {
   }
 };
 
-// POST /api/outages
 exports.createOutage = async (req, res) => {
   try {
     const { locality, pincode, coordinates, durationMinutes, description } = req.body;
-
-    if (!coordinates?.length === 2) {
-      return res.status(400).json({ message: 'coordinates [lng, lat] required' });
-    }
 
     const outage = await Outage.create({
       reportedBy:      req.user._id,
@@ -47,13 +41,18 @@ exports.createOutage = async (req, res) => {
     });
 
     await outage.populate('reportedBy', 'name locality');
+
+    // Emit to everyone in this pincode room + ops room
+    const io = getIO();
+    io.to(`pincode:${outage.pincode}`).emit('outage:new', outage);
+    io.to('ops').emit('outage:new', outage);
+
     res.status(201).json({ outage });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-// GET /api/outages/:id
 exports.getOutage = async (req, res) => {
   try {
     const outage = await Outage.findById(req.params.id)
@@ -65,13 +64,12 @@ exports.getOutage = async (req, res) => {
   }
 };
 
-// PATCH /api/outages/:id/upvote
 exports.upvoteOutage = async (req, res) => {
   try {
     const outage = await Outage.findById(req.params.id);
     if (!outage) return res.status(404).json({ message: 'Not found' });
 
-    const userId = req.user._id.toString();
+    const userId      = req.user._id.toString();
     const alreadyVoted = outage.upvotes.map(u => u.toString()).includes(userId);
 
     if (alreadyVoted) {
@@ -81,13 +79,19 @@ exports.upvoteOutage = async (req, res) => {
     }
 
     await outage.save();
+
+    // Emit upvote count update to pincode room
+    getIO().to(`pincode:${outage.pincode}`).emit('outage:upvoted', {
+      _id:     outage._id,
+      upvotes: outage.upvotes.length
+    });
+
     res.json({ upvotes: outage.upvotes.length, voted: !alreadyVoted });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-// PATCH /api/outages/:id/status  (operator/admin only)
 exports.updateStatus = async (req, res) => {
   try {
     const { status, ert } = req.body;
@@ -100,13 +104,18 @@ exports.updateStatus = async (req, res) => {
 
     await outage.save();
     await outage.populate('reportedBy', 'name locality');
+
+    // Emit status update to pincode room + ops room
+    const io = getIO();
+    io.to(`pincode:${outage.pincode}`).emit('outage:updated', outage);
+    io.to('ops').emit('outage:updated', outage);
+
     res.json({ outage });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-// GET /api/outages/my  — citizen's own reports
 exports.getMyOutages = async (req, res) => {
   try {
     const outages = await Outage.find({ reportedBy: req.user._id })
